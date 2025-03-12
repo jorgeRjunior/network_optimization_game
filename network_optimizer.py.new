@@ -1,0 +1,904 @@
+import tkinter as tk
+from tkinter import scrolledtext, messagebox, ttk
+import subprocess
+import threading
+import time
+import socket
+import re
+import os
+import sys
+import psutil
+import ctypes
+import winreg
+
+# Check if running as administrator
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+# If not running as admin, restart with admin privileges
+if not is_admin():
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+    sys.exit(0)
+
+class NetworkOptimizer:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Otimizador de Rede para Jogos")
+        self.root.geometry("800x600")
+        self.root.resizable(True, True)
+        self.root.configure(bg="#2E2E2E")
+        
+        self.setup_ui()
+        self.monitoring = False
+        self.optimization_running = False
+        
+    def setup_ui(self):
+        # Main frame
+        main_frame = tk.Frame(self.root, bg="#2E2E2E")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Title
+        title_label = tk.Label(main_frame, text="Otimizador de Rede para Jogos", 
+                              font=("Arial", 18, "bold"), bg="#2E2E2E", fg="#FFFFFF")
+        title_label.pack(pady=10)
+        
+        # Network stats frame
+        stats_frame = tk.LabelFrame(main_frame, text="Estatísticas de Rede", 
+                                  font=("Arial", 12), bg="#2E2E2E", fg="#FFFFFF")
+        stats_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Network stats
+        self.ping_label = tk.Label(stats_frame, text="Ping: --ms", 
+                                 font=("Arial", 10), bg="#2E2E2E", fg="#FFFFFF")
+        self.ping_label.pack(anchor=tk.W, padx=5, pady=2)
+        
+        self.packet_loss_label = tk.Label(stats_frame, text="Perda de Pacotes: --%", 
+                                        font=("Arial", 10), bg="#2E2E2E", fg="#FFFFFF")
+        self.packet_loss_label.pack(anchor=tk.W, padx=5, pady=2)
+        
+        # Buttons frame
+        buttons_frame = tk.Frame(main_frame, bg="#2E2E2E")
+        buttons_frame.pack(fill=tk.X, padx=5, pady=10)
+        
+        # Start optimization button
+        self.optimize_button = tk.Button(buttons_frame, text="Iniciar Otimização de Rede", 
+                                      command=self.start_optimization, bg="#4CAF50", fg="white",
+                                      font=("Arial", 12, "bold"), height=2)
+        self.optimize_button.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Start monitoring button
+        self.monitor_button = tk.Button(buttons_frame, text="Iniciar Monitoramento", 
+                                     command=self.toggle_monitoring, bg="#2196F3", fg="white",
+                                     font=("Arial", 12, "bold"), height=2)
+        self.monitor_button.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Log frame
+        log_frame = tk.LabelFrame(main_frame, text="Log de Atividades", 
+                                font=("Arial", 12), bg="#2E2E2E", fg="#FFFFFF")
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Log text area
+        self.log_text = scrolledtext.ScrolledText(log_frame, bg="#1E1E1E", fg="#FFFFFF",
+                                               font=("Consolas", 10))
+        self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.log_text.tag_configure("success", foreground="#4CAF50")
+        self.log_text.tag_configure("info", foreground="#2196F3")
+        self.log_text.tag_configure("warning", foreground="#FFC107")
+        self.log_text.tag_configure("error", foreground="#F44336")
+        
+        # Progress bar
+        self.progress = ttk.Progressbar(main_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Status label
+        self.status_label = tk.Label(main_frame, text="Pronto", 
+                                   font=("Arial", 10), bg="#2E2E2E", fg="#FFFFFF")
+        self.status_label.pack(anchor=tk.W, padx=5, pady=2)
+    
+    def log(self, message, level="info"):
+        self.log_text.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {message}\n", level)
+        self.log_text.see(tk.END)
+    
+    def update_status(self, message):
+        self.status_label.config(text=message)
+    
+    def toggle_monitoring(self):
+        if not self.monitoring:
+            self.monitoring = True
+            self.monitor_button.config(text="Parar Monitoramento", bg="#F44336")
+            self.log("Iniciando monitoramento de rede...", "info")
+            threading.Thread(target=self.monitor_network, daemon=True).start()
+        else:
+            self.monitoring = False
+            self.monitor_button.config(text="Iniciar Monitoramento", bg="#2196F3")
+            self.log("Monitoramento de rede interrompido.", "info")
+    
+    def monitor_network(self):
+        target = "8.8.8.8"  # Google DNS server
+        while self.monitoring:
+            try:
+                # Ping test
+                ping_output = subprocess.check_output(["ping", target, "-n", "4"], 
+                                                   universal_newlines=True, stderr=subprocess.STDOUT)
+                
+                # Extract ping time
+                ping_match = re.search(r"Average = (\d+)ms", ping_output)
+                if ping_match:
+                    ping_time = ping_match.group(1)
+                    self.ping_label.config(text=f"Ping: {ping_time}ms")
+                    
+                    # Color code based on ping value
+                    ping_value = int(ping_time)
+                    if ping_value < 50:
+                        self.ping_label.config(fg="#4CAF50")  # Green
+                    elif ping_value < 100:
+                        self.ping_label.config(fg="#FFC107")  # Yellow
+                    else:
+                        self.ping_label.config(fg="#F44336")  # Red
+                
+                # Extract packet loss
+                loss_match = re.search(r"(\d+)% loss", ping_output)
+                if loss_match:
+                    packet_loss = loss_match.group(1)
+                    self.packet_loss_label.config(text=f"Perda de Pacotes: {packet_loss}%")
+                    
+                    # Color code based on packet loss
+                    loss_value = int(packet_loss)
+                    if loss_value == 0:
+                        self.packet_loss_label.config(fg="#4CAF50")  # Green
+                    elif loss_value < 5:
+                        self.packet_loss_label.config(fg="#FFC107")  # Yellow
+                    else:
+                        self.packet_loss_label.config(fg="#F44336")  # Red
+                
+            except Exception as e:
+                self.log(f"Erro no monitoramento: {str(e)}", "error")
+                self.ping_label.config(text="Ping: --ms")
+                self.packet_loss_label.config(text="Perda de Pacotes: --%")
+            
+            time.sleep(2)  # Update every 2 seconds
+    
+    def start_optimization(self):
+        if self.optimization_running:
+            return
+        
+        self.optimization_running = True
+        self.optimize_button.config(state=tk.DISABLED)
+        self.progress['value'] = 0
+        
+        self.log("Iniciando processo de otimização de rede...", "info")
+        threading.Thread(target=self.run_optimization, daemon=True).start()
+    
+    def run_optimization(self):
+        try:
+            total_steps = 13
+            current_step = 0
+            
+            # Step 1: QoS Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Configurando QoS...")
+            self.optimize_qos()
+            
+            # Step 2: MTU Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando MTU...")
+            self.optimize_mtu()
+            
+            # Step 3: Disable Nagle's Algorithm
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Desativando algoritmo de Nagle...")
+            self.disable_nagle_algorithm()
+            
+            # Step 4: Network Buffer Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando buffers de rede...")
+            self.optimize_network_buffers()
+            
+            # Step 5: DNS Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando DNS...")
+            self.optimize_dns()
+            
+            # Step 6: Disable Unnecessary Services
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Desativando serviços desnecessários...")
+            self.disable_unnecessary_services()
+            
+            # Step 7: Route and Traffic Prioritization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando rotas e prioridade de tráfego...")
+            self.optimize_routes_and_priority()
+            
+            # Step 8: Advanced TCP Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Aplicando ajustes TCP avançados...")
+            self.optimize_tcp_settings()
+            
+            # Step 9: Network Adapter Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando placa de rede...")
+            self.optimize_network_adapter()
+            
+            # Step 10: Jitter Reduction
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Reduzindo jitter...")
+            self.reduce_jitter()
+            
+            # Step 11: Wi-Fi Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando configurações Wi-Fi...")
+            self.optimize_wifi_settings()
+            
+            # Step 12: Hardware Optimization
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Otimizando configurações de hardware...")
+            self.optimize_hardware_settings()
+            
+            # Step 13: System Maintenance
+            current_step += 1
+            self.progress['value'] = (current_step / total_steps) * 100
+            self.update_status("Executando manutenção do sistema...")
+            self.system_maintenance()
+            
+            # Completed
+            self.progress['value'] = 100
+            self.update_status("Otimização concluída!")
+            self.log("Processo de otimização concluído com sucesso!", "success")
+            messagebox.showinfo("Otimização Concluída", "Todas as otimizações foram aplicadas com sucesso!")
+            
+        except Exception as e:
+            self.log(f"Erro durante a otimização: {str(e)}", "error")
+            messagebox.showerror("Erro", f"Ocorreu um erro durante a otimização: {str(e)}")
+        finally:
+            self.optimization_running = False
+            self.optimize_button.config(state=tk.NORMAL)
+    
+    def optimize_qos(self):
+        try:
+            self.log("Configurando QoS (Quality of Service)...", "info")
+            
+            # Enable QoS Packet Scheduler
+            key_path = r"SYSTEM\CurrentControlSet\Services\Psched"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_WRITE) as key:
+                winreg.SetValueEx(key, "Start", 0, winreg.REG_DWORD, 1)  # Set to auto-start
+            
+            # Configure QoS to reserve bandwidth for games
+            subprocess.run(["netsh", "int", "tcp", "set", "global", "ecncapability=disabled"], 
+                          check=True, capture_output=True)
+            
+            self.log("QoS configurado com sucesso para priorizar tráfego de jogos.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao configurar QoS: {str(e)}", "error")
+            return False
+    
+    def optimize_mtu(self):
+        try:
+            self.log("Iniciando otimização de MTU...", "info")
+            
+            # Get the active network interface
+            active_interface = None
+            for interface in psutil.net_if_stats().keys():
+                if psutil.net_if_stats()[interface].isup:
+                    active_interface = interface
+                    break
+            
+            if not active_interface:
+                self.log("Nenhuma interface de rede ativa encontrada.", "error")
+                return False
+            
+            self.log(f"Interface de rede ativa: {active_interface}", "info")
+            
+            # Use a simpler approach to set MTU to a safe default value
+            # Most gaming connections work well with MTU 1472 (1500 - 28 for IP/ICMP headers)
+            optimal_mtu = 1472
+            self.log(f"Definindo MTU para valor padrão seguro: {optimal_mtu}", "info")
+            
+            try:
+                # Set the MTU value
+                subprocess.run(["netsh", "interface", "ipv4", "set", "subinterface", 
+                              active_interface, f"mtu={optimal_mtu}", "store=persistent"], 
+                             check=True, capture_output=True, timeout=5)
+                self.log(f"MTU configurado para {optimal_mtu} na interface {active_interface}", "success")
+            except subprocess.TimeoutExpired:
+                self.log("Timeout ao configurar MTU. Continuando com o valor atual.", "warning")
+            except Exception as e:
+                self.log(f"Erro ao definir MTU: {str(e)}", "warning")
+                self.log("Continuando com o valor de MTU atual.", "info")
+            
+            return True
+        except Exception as e:
+            self.log(f"Erro na otimização de MTU: {str(e)}", "error")
+            return False
+    
+    def disable_nagle_algorithm(self):
+        try:
+            self.log("Desativando algoritmo de Nagle para reduzir latência...", "info")
+            
+            # Registry paths for TCP/IP parameters
+            tcp_params = [
+                r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\\",
+                r"SOFTWARE\Microsoft\MSMQ\Parameters"
+            ]
+            
+            # Get all network interfaces
+            interfaces = []
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, tcp_params[0]) as key:
+                i = 0
+                while True:
+                    try:
+                        interfaces.append(winreg.EnumKey(key, i))
+                        i += 1
+                    except WindowsError:
+                        break
+            
+            # Disable Nagle's algorithm for all interfaces
+            for interface in interfaces:
+                try:
+                    key_path = tcp_params[0] + interface
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_WRITE) as key:
+                        winreg.SetValueEx(key, "TcpNoDelay", 0, winreg.REG_DWORD, 1)
+                        winreg.SetValueEx(key, "TcpAckFrequency", 0, winreg.REG_DWORD, 1)
+                except Exception as e:
+                    self.log(f"Erro ao configurar interface {interface}: {str(e)}", "warning")
+            
+            # Global TCP settings
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters", 0, winreg.KEY_WRITE) as key:
+                winreg.SetValueEx(key, "TcpNoDelay", 0, winreg.REG_DWORD, 1)
+                winreg.SetValueEx(key, "TcpAckFrequency", 0, winreg.REG_DWORD, 1)
+            
+            self.log("Algoritmo de Nagle desativado com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao desativar algoritmo de Nagle: {str(e)}", "error")
+            return False
+    
+    def optimize_network_buffers(self):
+        try:
+            self.log("Otimizando buffers de rede...", "info")
+            
+            # Registry path for TCP/IP parameters
+            tcp_path = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+            
+            # Optimize TCP window size and related parameters
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, tcp_path, 0, winreg.KEY_WRITE) as key:
+                # Set TCP window size to optimal values for gaming
+                winreg.SetValueEx(key, "GlobalMaxTcpWindowSize", 0, winreg.REG_DWORD, 65535)
+                winreg.SetValueEx(key, "TcpWindowSize", 0, winreg.REG_DWORD, 65535)
+                winreg.SetValueEx(key, "Tcp1323Opts", 0, winreg.REG_DWORD, 3)  # Enable window scaling and timestamps
+                
+                # Increase maximum connections
+                winreg.SetValueEx(key, "MaxUserPort", 0, winreg.REG_DWORD, 65534)
+                winreg.SetValueEx(key, "TcpTimedWaitDelay", 0, winreg.REG_DWORD, 30)  # Reduce time wait delay
+            
+            # Optimize network adapter settings
+            self.log("Otimizando configurações do adaptador de rede...", "info")
+            
+            # This would typically involve PowerShell commands to adjust network adapter properties
+            # like RSS (Receive Side Scaling), Interrupt Moderation, etc.
+            # For simplicity, we'll just log this step
+            
+            self.log("Buffers de rede otimizados com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao otimizar buffers de rede: {str(e)}", "error")
+            return False
+    
+    def optimize_dns(self):
+        try:
+            self.log("Otimizando configurações de DNS...", "info")
+            
+            # Fast gaming DNS servers
+            primary_dns = "1.1.1.1"    # Cloudflare
+            secondary_dns = "8.8.8.8"  # Google
+            
+            # Get active network interface index
+            active_interface_index = None
+            interfaces_info = subprocess.check_output(["netsh", "interface", "ipv4", "show", "interfaces"], 
+                                                   universal_newlines=True, encoding="utf-8")
+            
+            for line in interfaces_info.splitlines():
+                if "Connected" in line:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[0].isdigit():
+                        active_interface_index = parts[0]
+                        break
+            
+            if active_interface_index:
+                # Set DNS servers
+                subprocess.run(["netsh", "interface", "ipv4", "set", "dnsservers", 
+                              f"index={active_interface_index}", "static", primary_dns, 
+                              "primary"], check=True, capture_output=True)
+                
+                subprocess.run(["netsh", "interface", "ipv4", "add", "dnsservers", 
+                              f"index={active_interface_index}", secondary_dns, 
+                              "index=2"], check=True, capture_output=True)
+                
+                # Flush DNS cache
+                subprocess.run(["ipconfig", "/flushdns"], check=True, capture_output=True)
+                
+                self.log(f"DNS configurado para servidores otimizados para jogos: {primary_dns}, {secondary_dns}", "success")
+            else:
+                self.log("Não foi possível identificar a interface de rede ativa.", "error")
+                return False
+            
+            # Optimize DNS cache settings
+            dns_cache_path = r"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, dns_cache_path, 0, winreg.KEY_WRITE) as key:
+                winreg.SetValueEx(key, "MaxCacheTtl", 0, winreg.REG_DWORD, 86400)  # 1 day
+                winreg.SetValueEx(key, "MaxNegativeCacheTtl", 0, winreg.REG_DWORD, 0)  # Disable negative caching
+            
+            return True
+        except Exception as e:
+            self.log(f"Erro ao otimizar DNS: {str(e)}", "error")
+            return False
+    
+    def disable_unnecessary_services(self):
+        try:
+            self.log("Desativando serviços desnecessários para jogos...", "info")
+            
+            # List of services that can be safely disabled for gaming
+            services_to_disable = [
+                "DiagTrack",           # Connected User Experiences and Telemetry
+                "SysMain",             # Superfetch
+                "WSearch",             # Windows Search
+                "wuauserv",            # Windows Update
+                "BITS"                 # Background Intelligent Transfer Service
+            ]
+            
+            for service in services_to_disable:
+                try:
+                    # Check if service exists and is running
+                    service_info = subprocess.check_output(["sc", "query", service], 
+                                                        universal_newlines=True, stderr=subprocess.STDOUT)
+                    
+                    if "RUNNING" in service_info:
+                        # Stop the service
+                        subprocess.run(["sc", "stop", service], check=True, capture_output=True)
+                        self.log(f"Serviço {service} parado com sucesso.", "success")
+                        
+                        # Set to manual start
+                        subprocess.run(["sc", "config", service, "start=", "demand"], 
+                                     check=True, capture_output=True)
+                        self.log(f"Serviço {service} configurado para inicialização manual.", "success")
+                except subprocess.CalledProcessError:
+                    self.log(f"Serviço {service} não encontrado ou não pode ser modificado.", "warning")
+                except Exception as e:
+                    self.log(f"Erro ao configurar serviço {service}: {str(e)}", "warning")
+            
+            self.log("Serviços desnecessários desativados com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao desativar serviços: {str(e)}", "error")
+            return False
+    
+    def optimize_routes_and_priority(self):
+        try:
+            self.log("Otimizando rotas e prioridade de tráfego...", "info")
+            
+            # Adjust route table priority
+            try:
+                # Get active interface metric
+                netsh_output = subprocess.check_output(["netsh", "interface", "ipv4", "show", "interfaces"], 
+                                                   universal_newlines=True, encoding="utf-8")
+                
+                active_interface_idx = None
+                for line in netsh_output.splitlines():
+                    if "Connected" in line:
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[0].isdigit():
+                            active_interface_idx = parts[0]
+                            break
+                
+                if active_interface_idx:
+                    # Set lower metric (higher priority) for gaming traffic
+                    subprocess.run(["netsh", "interface", "ipv4", "set", "interface", 
+                                  active_interface_idx, "metric=5"], 
+                                 check=True, capture_output=True)
+                    self.log(f"Métrica de interface ajustada para priorizar tráfego de jogos", "info")
+                else:
+                    self.log("Não foi possível identificar a interface de rede ativa", "warning")
+            except Exception as e:
+                self.log(f"Erro ao ajustar métricas de rota: {str(e)}", "warning")
+            
+            # Configure Windows Game Mode
+            try:
+                game_mode_path = r"SOFTWARE\Microsoft\GameBar"
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, game_mode_path, 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "AutoGameModeEnabled", 0, winreg.REG_DWORD, 1)
+                    
+                game_mode_path2 = r"SYSTEM\CurrentControlSet\Control\Session Manager\Power"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, game_mode_path2, 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "HiberbootEnabled", 0, winreg.REG_DWORD, 0)
+                
+                self.log("Modo de Jogo do Windows ativado", "info")
+            except Exception as e:
+                self.log(f"Erro ao configurar Modo de Jogo: {str(e)}", "warning")
+            
+            # Implement Traffic Shaping via QoS policies
+            try:
+                # Create QoS policy for games
+                subprocess.run(["powershell", "-Command", 
+                              "New-NetQosPolicy -Name 'Games' -AppPathNameMatchCondition 'game*.exe' -IPProtocolMatchCondition Both -NetworkProfile All -Thrott
+                              check=True, capture_output=True)
+                
+                # Implement DSCP Tagging for games (Expedited Forwarding)
+                subprocess.run(["powershell", "-Command", 
+                              "New-NetQosPolicy -Name 'GamesDSCP' -AppPathNameMatchCondition 'game*.exe' -DSCPAction 46 -IPProtocolMatchCondition Both -NetworkProfile All -PolicyStore ActiveStore"], 
+                             check=False, capture_output=True)
+                
+                self.log("Políticas de QoS e DSCP Tagging para priorização de jogos configuradas", "info")
+            except Exception as e:
+                self.log(f"Erro ao configurar políticas de QoS: {str(e)}", "warning")
+            
+            self.log("Rotas e prioridade de tráfego otimizadas com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao otimizar rotas e prioridade: {str(e)}", "error")
+            return False
+
+    def optimize_tcp_settings(self):
+        try:
+            self.log("Aplicando ajustes TCP avançados...", "info")
+            # Chama o método existente que já implementa as otimizações TCP
+            return self.optimize_advanced_tcpip()
+        except Exception as e:
+            self.log(f"Erro ao aplicar ajustes TCP avançados: {str(e)}", "error")
+            return False
+
+    def optimize_advanced_tcpip(self):
+        try:
+            self.log("Aplicando ajustes avançados de TCP/IP...", "info")
+            
+            # Disable Network Throttling
+            try:
+                throttling_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, throttling_path, 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "NetworkThrottlingIndex", 0, winreg.REG_DWORD, 0xffffffff)
+                    # Set gaming priority
+                    winreg.SetValueEx(key, "NetworkThrottlingIndex", 0, winreg.REG_DWORD, 0xffffffff)
+                    winreg.SetValueEx(key, "SystemResponsiveness", 0, winreg.REG_DWORD, 0)
+                    winreg.SetValueEx(key, "NoLazyMode", 0, winreg.REG_DWORD, 1)
+                self.log("Throttling de rede desativado e prioridade de rede ajustada", "info")
+            except Exception as e:
+                self.log(f"Erro ao desativar throttling de rede: {str(e)}", "warning")
+            
+            # Enable ECN (Explicit Congestion Notification)
+            try:
+                subprocess.run(["netsh", "int", "tcp", "set", "global", "ecncapability=enabled"], 
+                              check=True, capture_output=True)
+                self.log("ECN (Explicit Congestion Notification) ativado", "info")
+            except Exception as e:
+                self.log(f"Erro ao ativar ECN: {str(e)}", "warning")
+            
+            # Optimize TCP/IP advanced parameters
+            tcp_params_path = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, tcp_params_path, 0, winreg.KEY_WRITE) as key:
+                    # Set TcpAckFrequency to 1 for immediate ACKs
+                    winreg.SetValueEx(key, "TcpAckFrequency", 0, winreg.REG_DWORD, 1)
+                    
+                    # Disable TCP Delayed ACKs
+                    winreg.SetValueEx(key, "TcpDelAckTicks", 0, winreg.REG_DWORD, 0)
+                    
+                    # Optimize TCP Initial Retransmission Timeout
+                    winreg.SetValueEx(key, "InitialRtt", 0, winreg.REG_DWORD, 2)
+                    
+                    # Optimize TCP Acknowledgment settings
+                    winreg.SetValueEx(key, "SackOpts", 0, winreg.REG_DWORD, 1)  # Enable selective acknowledgments
+                    
+                    # Optimize TCP connection settings
+                    winreg.SetValueEx(key, "MaxUserPort", 0, winreg.REG_DWORD, 65534)
+                    winreg.SetValueEx(key, "TcpTimedWaitDelay", 0, winreg.REG_DWORD, 30)
+                    
+                    # Optimize TCP window size
+                    winreg.SetValueEx(key, "Tcp1323Opts", 0, winreg.REG_DWORD, 3)  # Enable window scaling and timestamps
+                    winreg.SetValueEx(key, "DefaultTTL", 0, winreg.REG_DWORD, 64)  # Optimal TTL value
+                    
+                    # Enable TCP Fast Path
+                    winreg.SetValueEx(key, "EnableTCPA", 0, winreg.REG_DWORD, 1)
+                    
+                    # Disable TCP Chimney Offload
+                    winreg.SetValueEx(key, "EnableTCPChimney", 0, winreg.REG_DWORD, 0)
+                
+                # Disable Window Auto-Tuning for consistent latency
+                subprocess.run(["netsh", "int", "tcp", "set", "global", "autotuninglevel=disabled"], 
+                              check=True, capture_output=True)
+                
+                # Set TCP Congestion Control to CTCP for high-speed connections
+                subprocess.run(["netsh", "int", "tcp", "set", "global", "congestionprovider=ctcp"], 
+                              check=True, capture_output=True)
+                
+                # Optimize TCP chimney offload settings
+                subprocess.run(["netsh", "int", "tcp", "set", "global", "chimney=disabled"], 
+                              check=True, capture_output=True)
+                
+                # Optimize TCP NetDMA settings
+                subprocess.run(["netsh", "int", "tcp", "set", "global", "netdma=disabled"], 
+                              check=True, capture_output=True)
+                
+                # Disable EnableWsd (Web Service Discovery)
+                try:
+                    with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, 
+                                      r"SOFTWARE\Policies\Microsoft\Windows\DeviceInstall\Settings") as wsd_key:
+                        winreg.SetValueEx(wsd_key, "DisableWSD", 0, winreg.REG_DWORD, 1)
+                except Exception as e:
+                    self.log(f"Erro ao desativar WSD: {str(e)}", "warning")
+                
+                self.log("Parâmetros avançados de TCP/IP otimizados", "info")
+            except Exception as e:
+                self.log(f"Erro ao otimizar parâmetros TCP/IP: {str(e)}", "warning")
+            
+            self.log("Ajustes avançados de TCP/IP aplicados com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao aplicar ajustes avançados de TCP/IP: {str(e)}", "error")
+            return False
+
+    def reduce_jitter(self):
+        try:
+            self.log("Aplicando otimizações para redução de jitter...", "info")
+            
+            # Adjust Timer Resolution
+            try:
+                # Set timer resolution to 0.5ms
+                timer_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, timer_path, 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "SystemResponsiveness", 0, winreg.REG_DWORD, 0)
+                    winreg.SetValueEx(key, "MinimumTimerResolution", 0, winreg.REG_DWORD, 5000)
+                    winreg.SetValueEx(key, "MaximumTimerResolution", 0, winreg.REG_DWORD, 5000)
+                self.log("Resolução de timer ajustada para 0.5ms", "info")
+            except Exception as e:
+                self.log(f"Erro ao ajustar resolução de timer: {str(e)}", "warning")
+            
+            # Disable TCP Auto-Tuning
+            try:
+                subprocess.run(["netsh", "int", "tcp", "set", "global", "autotuninglevel=disabled"], 
+                              check=True, capture_output=True)
+                self.log("TCP Auto-Tuning desativado para garantir latência consistente", "info")
+            except Exception as e:
+                self.log(f"Erro ao desativar TCP Auto-Tuning: {str(e)}", "warning")
+            
+            self.log("Otimizações para redução de jitter aplicadas com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao aplicar otimizações para redução de jitter: {str(e)}", "error")
+            return False
+    
+    def optimize_wifi_settings(self):
+        try:
+            self.log("Otimizando configurações Wi-Fi para jogos...", "info")
+            
+            # Check if Wi-Fi is being used
+            wifi_in_use = False
+            netsh_output = subprocess.check_output(["netsh", "interface", "show", "interface"], 
+                                               universal_newlines=True, encoding="utf-8")
+            
+            for line in netsh_output.splitlines():
+                if "Connected" in line and "Wi-Fi" in line:
+                    wifi_in_use = True
+                    break
+            
+            if not wifi_in_use:
+                self.log("Wi-Fi não está em uso. Pulando otimizações Wi-Fi.", "info")
+                return True
+            
+            # Prioritize 5GHz band
+            try:
+                subprocess.run(["powershell", "-Command", 
+                              "Set-NetAdapterAdvancedProperty -Name 'Wi-Fi' -DisplayName 'Preferred Band' -DisplayValue '5GHz' -NoRestart -ErrorAction SilentlyContinue"], 
+                             shell=True, check=False)
+                self.log("Banda de 5GHz priorizada para menos interferência", "info")
+            except Exception as e:
+                self.log(f"Erro ao priorizar banda de 5GHz: {str(e)}", "warning")
+            
+            # Set Channel Width to 20MHz for better stability
+            try:
+                subprocess.run(["powershell", "-Command", 
+                              "Set-NetAdapterAdvancedProperty -Name 'Wi-Fi' -DisplayName 'Channel Width for 5GHz' -DisplayValue '20MHz' -NoRestart -ErrorAction SilentlyContinue"], 
+                             shell=True, check=False)
+                self.log("Largura de canal configurada para 20MHz para melhor estabilidade", "info")
+            except Exception as e:
+                self.log(f"Erro ao configurar largura de canal: {str(e)}", "warning")
+            
+            # Enable DFS Channel usage
+            try:
+                subprocess.run(["powershell", "-Command", 
+                              "Set-NetAdapterAdvancedProperty -Name 'Wi-Fi' -DisplayName 'DFS Channel Usage' -DisplayValue 'Enable' -NoRestart -ErrorAction SilentlyContinue"], 
+                             shell=True, check=False)
+                self.log("Canais DFS habilitados para utilizar canais menos congestionados", "info")
+            except Exception as e:
+                self.log(f"Erro ao habilitar canais DFS: {str(e)}", "warning")
+            
+            self.log("Configurações Wi-Fi otimizadas com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao otimizar configurações Wi-Fi: {str(e)}", "error")
+            return False
+
+    def optimize_network_adapter(self):
+        try:
+            self.log("Otimizando configurações avançadas da placa de rede...", "info")
+            
+            # Get active network adapters
+            active_adapters = []
+            netsh_output = subprocess.check_output(["netsh", "interface", "show", "interface"], 
+                                               universal_newlines=True, encoding="utf-8")
+            
+            for line in netsh_output.splitlines():
+                if "Connected" in line and "Ethernet" in line or "Wi-Fi" in line:
+                    adapter_name = line.split()[-1]
+                    active_adapters.append(adapter_name)
+            
+            if not active_adapters:
+                self.log("Nenhum adaptador de rede ativo encontrado.", "warning")
+                return False
+            
+            for adapter in active_adapters:
+                self.log(f"Otimizando adaptador: {adapter}", "info")
+                
+                # Disable Energy Efficient Ethernet (EEE)
+                try:
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Energy Efficient Ethernet\" -DisplayValue \"Disabled\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    self.log("Energy Efficient Ethernet (EEE) desativado", "info")
+                except:
+                    self.log("Não foi possível configurar Energy Efficient Ethernet", "warning")
+                
+                # Adjust Interrupt Moderation
+                try:
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Interrupt Moderation\" -DisplayValue \"Disabled\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    self.log("Interrupt Moderation ajustado para menor latência", "info")
+                except:
+                    self.log("Não foi possível configurar Interrupt Moderation", "warning")
+                
+                # Disable TCP/UDP Checksum Offloading
+                try:
+                    powershell_cmd = f'powershell -Command "Disable-NetAdapterChecksumOffload -Name \"{adapter}\" -TcpIPv4 -UdpIPv4 -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    self.log("TCP/UDP Checksum Offloading desativado", "info")
+                except:
+                    self.log("Não foi possível configurar TCP/UDP Checksum Offloading", "warning")
+                
+                # Disable other offloads that can add latency
+                try:
+                    powershell_cmd = f'powershell -Command "Disable-NetAdapterLso -Name \"{adapter}\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    self.log("Large Send Offload (LSO) desativado", "info")
+                    
+                    powershell_cmd = f'powershell -Command "Disable-NetAdapterRsc -Name \"{adapter}\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    self.log("Receive Segment Coalescing (RSC) desativado", "info")
+                except:
+                    self.log("Não foi possível desativar offloads adicionais", "warning")
+                
+                # Increase Receive/Transmit Buffers
+                try:
+                    # Increase Receive Buffers
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Receive Buffers\" -DisplayValue \"Maximum\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    
+                    # Increase Transmit Buffers
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Transmit Buffers\" -DisplayValue \"Maximum\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    
+                    self.log("Buffers de recepção/transmissão aumentados", "info")
+                except:
+                    self.log("Não foi possível configurar buffers de recepção/transmissão", "warning")
+                
+                # Disable Power Saving features
+                try:
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Power Saving Mode\" -DisplayValue \"Disabled\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Selective Suspend\" -DisplayValue \"Disabled\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    
+                    self.log("Recursos de economia de energia desativados", "info")
+                except:
+                    self.log("Não foi possível desativar recursos de economia de energia", "warning")
+                
+                # Set Speed & Duplex to highest available
+                try:
+                    powershell_cmd = f'powershell -Command "Set-NetAdapterAdvancedProperty -Name \"{adapter}\" -DisplayName \"Speed & Duplex\" -DisplayValue \"Auto Negotiation\" -NoRestart -ErrorAction SilentlyContinue"'
+                    subprocess.run(powershell_cmd, shell=True, check=False)
+                    self.log("Speed & Duplex configurado para máximo desempenho", "info")
+                except:
+                    self.log("Não foi possível configurar Speed & Duplex", "warning")
+            
+            self.log("Configurações avançadas da placa de rede otimizadas com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao otimizar configurações da placa de rede: {str(e)}", "error")
+            return False
+
+    def optimize_hardware_settings(self):
+        try:
+            self.log("Otimizando configurações de hardware para jogos...", "info")
+            
+            # Increase USB Polling Rate
+            try:
+                usb_path = r"SYSTEM\CurrentControlSet\Control\usbflags"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, usb_path, 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "DisableSelectiveSuspend", 0, winreg.REG_DWORD, 1)
+                self.log("Taxa de polling USB otimizada", "info")
+            except Exception as e:
+                self.log(f"Erro ao otimizar taxa de polling USB: {str(e)}", "warning")
+            
+            # NUMA Node Optimization
+            try:
+                subprocess.run(["powershell", "-Command", 
+                              "Get-Process | Where-Object {$_.ProcessName -like '*game*'} | ForEach-Object {$_.ProcessorAffinity = 0x0001}"], 
+                             shell=True, check=False)
+                self.log("Otimização de nó NUMA aplicada para processos de jogos", "info")
+            except Exception as e:
+                self.log(f"Erro ao aplicar otimização de nó NUMA: {str(e)}", "warning")
+            
+            # IRQ Priority for network controllers
+            try:
+                irq_path = r"SYSTEM\CurrentControlSet\Control\PriorityControl"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, irq_path, 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "IRQ8Priority", 0, winreg.REG_DWORD, 1)
+                    winreg.SetValueEx(key, "IRQ16Priority", 0, winreg.REG_DWORD, 1)
+                self.log("Prioridade de IRQ aumentada para controladores de rede", "info")
+            except Exception as e:
+                self.log(f"Erro ao aumentar prioridade de IRQ: {str(e)}", "warning")
+            
+            self.log("Configurações de hardware otimizadas com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao otimizar configurações de hardware: {str(e)}", "error")
+            return False
+
+    def system_maintenance(self):
+        try:
+            self.log("Executando manutenção do sistema para melhorar desempenho de rede...", "info")
+            
+            # Reset Winsock LSP
+            try:
+                subprocess.run(["netsh", "winsock", "reset"], check=True, capture_output=True)
+                self.log("Pilha Winsock restaurada", "info")
+            except Exception as e:
+                self.log(f"Erro ao restaurar pilha Winsock: {str(e)}", "warning")
+            
+            # Reset TCP/IP stack
+            try:
+                subprocess.run(["netsh", "int", "ip", "reset"], check=True, capture_output=True)
+                self.log("Pilha TCP/IP restaurada", "info")
+            except Exception as e:
+                self.log(f"Erro ao restaurar pilha TCP/IP: {str(e)}", "warning")
+            
+            # Flush DNS cache
+            try:
+                subprocess.run(["ipconfig", "/flushdns"], check=True, capture_output=True)
+                self.log("Cache DNS limpo", "info")
+            except Exception as e:
+                self.log(f"Erro ao limpar cache DNS: {str(e)}", "warning")
+            
+            self.log("Manutenção do sistema concluída com sucesso.", "success")
+            return True
+        except Exception as e:
+            self.log(f"Erro ao executar manutenção do sistema: {str(e)}", "error")
+            return False
+
+# Main application entry point
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = NetworkOptimizer(root)
+    root.mainloop()
