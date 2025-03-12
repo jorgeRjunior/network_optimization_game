@@ -37,7 +37,10 @@ pip install -r requirements.txt
 ```
 python network_optimizer.py
 ```
-
+Para criar um executável rode:
+```
+python setup.py
+```
 2. Use o botão "Iniciar Monitoramento" para verificar as estatísticas atuais da sua rede
 3. Clique em "Iniciar Otimização de Rede" para aplicar todas as otimizações
 4. Acompanhe o progresso e os logs na interface
